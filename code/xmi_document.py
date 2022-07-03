@@ -161,49 +161,84 @@ class xmi_item:
                 ps = (self.node/"properties")
                 if ps:
                     return ps[0].documentation
-                    
+
+
     def _get_package(self):
+        return self.parent.path[-2] if self.is_sub_element(strict=True) else self.path[-2]
+
+
+    def _get_markdown_filename(self):
+        md_root = os.path.join(self.repo_root(), 'docs')
+        
+        if self.parent and self.parent.type == "PSET" and self.type is None:
+            return os.path.join(md_root, 'properties', self.name[0].lower(), self.name + ".md")
+        else:
+            md_root = os.path.join(md_root, 'schemas')
+            for category in os.listdir(md_root):
+                for module in os.listdir(os.path.join(md_root, category)):
+                    if module == self.package:
+                        return os.path.join(md_root, category, module, self.mdtype, (self.parent.name if self.is_sub_element() else self.name) + ".md")
+
+    def repo_root(self):
+        fn = self.parent.document.filename if self.is_sub_element(strict=True) else self.document.filename
+        return os.path.join(os.path.abspath(os.path.dirname(fn)), '..')
+
+    def is_sub_element(self, strict=False):
+        """
+        used for:
+          determining package (strict=True)
+          determining location of markdown (strict=False):
+            - true: sub-element, definition is in parent markdown under 2nd level heading
+            - false: root-element, definition is under 1st level heading in own markdown document
+            
+            NB: Note that property definitions are always in their own file            
+        """
         is_sub = self.parent is not None
-        return self.parent.path[-2] if is_sub else self.path[-2]
-                    
-    def _get_markdown(self, definition=False):
-        if self.node:
-            is_sub = self.parent is not None
-            
-            fn = self.parent.document.filename if is_sub else self.document.filename
-            repo_root = os.path.join(os.path.abspath(os.path.dirname(fn)), '..')
-            md_root = os.path.join(repo_root, 'docs')
-            md_fn = None
-            
+        
+        if not strict:
             if self.parent and self.parent.type == "PSET" and self.type is None:
                 # properties are not encoded into a definition of their pset
                 # but rather are listed separately in a directory 
                 is_sub = False
-                md_fn = os.path.join(md_root, 'properties', self.name[0].lower(), self.name + ".md")
-            else:
-                md_root = os.path.join(md_root, 'schemas')
-                for category in os.listdir(md_root):
-                    for module in os.listdir(os.path.join(md_root, category)):
-                        if module == self.package:
-                            md_fn = os.path.join(md_root, category, module, self.mdtype, (self.parent.name if is_sub else self.name) + ".md")
-                            break
-                            
+            
+        return is_sub
+
+
+    def _get_markdown(self, definition=False, content=False):
+        if self.node:
+
+            
+            md_fn = self.markdown_filename
+                         
             if md_fn is None:
                 return missing_markdown("Unable to locate markdown path")                        
             
-            p = os.path.relpath(md_fn, start=repo_root).replace(os.sep, '/')
+            p = os.path.relpath(md_fn, start=self.repo_root()).replace(os.sep, '/')
                                     
             if not os.path.exists(md_fn):
                 return missing_markdown(REPO_URL + p + " does not exist")
             
-            hname = 'Attributes' if not is_sub or self.parent.type == "ENTITY" else 'Items'
+            hname = 'Attributes' if not self.is_sub_element() or self.parent.type == "ENTITY" else 'Items'
             
             if not os.path.exists(md_fn):
                 return missing_markdown(REPO_URL + p + " failed to parse")
                 
+            if content and not self.is_sub_element():
+                lines = list(open(md_fn, encoding='utf-8'))
+                h0 = [set(ln.strip()) in ({'='}, {'-'}) for ln in lines]
+                h1 = [ln.startswith("#") for ln in lines]
+                for h in (h0, h1):
+                    if any(h):
+                        lines = lines[h.index(True) + 1:]
+                        break
+                empty = [len(ln.strip()) == 0 for ln in lines]
+                if any(empty):
+                    lines = lines[empty.index(True) + 1:]
+                return "\n".join(lines)                    
+                
             md_parser = markdown_attribute_parser(fn=md_fn, heading_name=hname, short=definition)
             
-            if is_sub:                
+            if self.is_sub_element():
                 attrs = dict(md_parser)
                 if md_parser.status.get("ALL") == "NO_HEADING":
                     return missing_markdown(REPO_URL + p + " has no '%s' heading" % sub_item_heading_name)
@@ -253,6 +288,8 @@ class xmi_item:
     path = property(_get_path)
     package = property(_get_package)
     mdtype = property(_mdtype)
+    markdown_filename = property(_get_markdown_filename)
+    markdown_content = property(lambda s: s._get_markdown(content=True))
     
 class xmi_document:
 
@@ -267,6 +304,8 @@ class xmi_document:
         self.extract_associations()
         self.extract_associations(concepts=True)
         self.extract_order()
+        
+        self.should_translate_pset_types = True
                 
         # Assert that we indeed have all `included_packages` in the UML
         # packagenames_from_uml = set(map(operator.attrgetter('name'), self.xmi.by_tag_and_type["packagedElement"]["uml:Package"]))
@@ -463,7 +502,7 @@ class xmi_document:
                     is_type_driven_only = "typedrivenonly" in stereotype
                     is_type_driven_override = "typedrivenoverride" in stereotype
                     
-                    if is_type_driven_override or is_type_driven_only:
+                    if self.should_translate_pset_types and (is_type_driven_override or is_type_driven_only):
                         get_name = lambda id_: self.xmi.by_id[id_].name
                         ref_names = list(map(get_name, refs))
                         
@@ -490,7 +529,7 @@ class xmi_document:
                         object_typing_reversed = {v[0]: k for k, v in self.concepts['ObjectTyping'].items() if len(v) == 1}
                         corresponding_types = list(filter(None, map(lambda id_pt: object_typing_reversed.get(id_pt[0], None), refs_combined)))
                         
-                        if len(corresponding_types) != len(refs):
+                        if len(corresponding_types) != len(refs) or set(corresponding_types) & set(refs):
                             ref_names = map(get_name, refs)
                             ref_type_names = map(get_name, corresponding_types)
                             print(f"WARNING: For PQset {c.name} applicability [{', '.join(ref_names)}] results in type associations [{', '.join(ref_type_names)}]")
@@ -604,7 +643,7 @@ class xmi_document:
                     #      ^ probably no longer relevant, all UML data is now relevant
                     # @todo:
                     # some enumerations elements for the concepts need a stereotype probably,
-                    # or we can filter them out looking at the uml:Depedency. For now
+                    # or we can filter them out looking at the uml:Dependency. For now
                     # checking the dot in the name is quickest.
                     continue
             
@@ -627,7 +666,7 @@ class xmi_document:
                     other_name = self.xmi.by_id[other].name
                     [supertypes, subtypes][issub].append(other_name)
                     
-                # In case of assymetric inverse relationships we need to find the
+                # In case of asymmetric inverse relationships we need to find the
                 # proper target element.
                 assocs_by_name = self.assocations[c.name].copy()
                 # count duplicate role names
