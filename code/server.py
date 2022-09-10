@@ -121,6 +121,7 @@ class resource_manager:
     type_values = schema_resource("type_values.json")
     hierarchy = schema_resource("hierarchy.json")
     xmi_concepts = schema_resource("xmi_concepts.json")
+    xmi_mvd_concepts = schema_resource("xmi_mvd_concepts.json")
     examples_by_type = schema_resource("examples_by_type.json")
 
     listing_references = schema_resource("listing_references.json")
@@ -249,6 +250,8 @@ class toc_entry:
 
     parent: object = None
     children: list = None
+    
+    mvds: list = None
 
 
 content_names = ["scope", "normative_references", "terms_and_definitions", "concepts"]
@@ -512,35 +515,48 @@ def create_entity_definition(e, bindings, ports):
     table = []
 
     bindings_seen = set()
-
-    while e:
-        keys = [x for x in R.entity_attributes.keys() if x.startswith(e + ".")]
-        for k, (is_fwd, ty) in list(zip(keys, map(R.entity_attributes.__getitem__, keys)))[::-1]:
-            if is_fwd == "derived":
-                # don't show them for now
-                continue
+    
+    def attributes_backward(e):
+        while e:
+            keys = [x for x in R.entity_attributes.keys() if x.startswith(e + ".")]
+            yield from list(zip(keys, map(R.entity_attributes.__getitem__, keys)))[::-1]
+            e = R.entity_supertype.get(e)
             
-            name = k.split(".")[1]
+    attributes = list(attributes_backward(E))
+    
+    fwd_attr_idx = sum([is_fwd == "forward" for k, (is_fwd, ty) in attributes])
 
-            cardinality = re.findall(r"(\[.+?\])", ty)
+    for k, (is_fwd, ty) in attributes:
+        if is_fwd == "derived":
+            # don't show them for now
+            continue
+        
+        label = name = k.split(".")[1]
+        
+        if is_fwd == "forward":
+            label = "%d. %s" % (fwd_attr_idx, name)
+            fwd_attr_idx -= 1
+        elif is_fwd == "inverse":
+            label = "      %s" % name
 
-            if cardinality:
-                cardinality = cardinality[0]
-            elif is_fwd:
-                cardinality = "[0:1]" if "OPTIONAL" in ty else "[1:1]"
-            else:
-                # default inverse cardinality
-                cardinality = "[1:1]"
+        cardinality = re.findall(r"(\[.+?\])", ty)
 
-            binding = bindings.get((EE, name), "")
-            if binding:
-                table.append({"name": name, "cardinality": cardinality, "is_bound": True, "is_port": name in ports})
-                bindings_seen.add((EE, name))
-                table.append({"name": binding, "is_binding": True})
-            else:
-                table.append({"name": name, "cardinality": cardinality, "is_port": name in ports})
+        if cardinality:
+            cardinality = cardinality[0]
+        elif is_fwd:
+            cardinality = "[0:1]" if "OPTIONAL" in ty else "[1:1]"
+        else:
+            # default inverse cardinality
+            cardinality = "[1:1]"
 
-        e = R.entity_supertype.get(e)
+        binding = bindings.get((EE, name), "")
+        if binding:
+            table.append({"label": label, "name": name, "cardinality": cardinality, "is_bound": True, "is_port": name in ports})
+            bindings_seen.add((EE, name))
+            table.append({"label": binding, "name": binding, "is_binding": True})
+        else:
+            table.append({"label": label, "name": name, "cardinality": cardinality, "is_port": name in ports})
+
 
     is_first = True
     for (ent, attr), binding in bindings.items():
@@ -550,13 +566,13 @@ def create_entity_definition(e, bindings, ports):
             continue
 
         if is_first:
-            table.insert(0, {"name": "..."})
-        table.insert(0, {"name": binding, "is_binding": True})
-        table.insert(0, {"name": attr, "is_bound": True, "is_port": attr in ports})
+            table.insert(0, {"label": "...", "name": "..."})
+        table.insert(0, {"label": binding, "name": binding, "is_binding": True})
+        table.insert(0, {"label": attr, "name": attr, "is_bound": True, "is_port": attr in ports})
 
         is_first = False
 
-    table.append({"name": E, "is_title": True})
+    table.append({"label": E, "name": E, "is_title": True})
     table = table[::-1]
 
     html = '<<table border="0" cellborder="1" cellspacing="0" cellpadding="5px">'
@@ -586,7 +602,7 @@ def create_entity_definition(e, bindings, ports):
         html += f'<td sides="b" width="250" height="{height}" bgcolor="{bgcolor}" align="{align}" port="{name}0">'
         if is_bold:
             html += '<b>'
-        html += f'<font color="{color}">{name}</font>'
+        html += f'<font color="{color}">{row["label"]}</font>'
         if is_bold:
             html += '</b>'
         html += '</td>'
@@ -881,6 +897,8 @@ def process_markdown(resource, mdc):
     # Tag all special notes separately. In markdown they are all lumped in a single block quote.
     for blockquote in soup.findAll("blockquote"):
         has_aside = False
+        non_aside_ps = []
+
         for p in blockquote.findAll("p"):
             try:
                 keyword, contents = p.text.split(" ", 1)
@@ -888,15 +906,14 @@ def process_markdown(resource, mdc):
             except:
                 continue
             valid_keywords = ["HISTORY", "IFC", "EXAMPLE", "NOTE", "REFERENCE"]
-            has_valid_keyword = False
-            for valid_keyword in valid_keywords:
-                if valid_keyword in keyword:
-                    has_valid_keyword = True
-                    break
+            has_valid_keyword = any(v in keyword for v in valid_keywords)
             if not has_valid_keyword:
+                non_aside_ps.append(p)
                 continue
+
             has_aside = True
             p.name = "aside"
+
             if keyword.startswith("IFC"):
                 # This is typically something like "IFC4 CHANGE" denoting a historic change reason
                 keyword, keyword2, contents = p.text.split(" ", 2)
@@ -912,15 +929,25 @@ def process_markdown(resource, mdc):
                 css_class = "change"
             if "deprecation" in css_class:
                 css_class = "deprecation"
+                
             p["class"] = f"aside-{css_class}"
 
             mark = soup.new_tag("mark")
             mark.string = keyword
+            
+            if "deprecation" in css_class:
+                anchor = soup.new_tag("a", href="/IFC/RELEASE/IFC4x3/HTML/content/terms_and_definitions.htm#3.1.30-deprecation")
+                icon = soup.new_tag("i")
+                icon["data-feather"] = "link"
+                anchor.append(icon)
+                mark.append(anchor)
 
             p.insert(0, mark)
             blockquote.insert_before(p)
+
         if has_aside:
-            blockquote.decompose()
+            if not non_aside_ps:
+                blockquote.decompose()
 
     html = str(soup).replace("{{ base }}", base)
 
@@ -1599,11 +1626,13 @@ def make_concept(path, number_path=None):
         ),
         1,
     )
+
     return toc_entry(
         url=make_url("concepts/" + "/".join(p for p in path if p).replace(" ", "_") + "/content.html"),
         number=number_path,
         text=path[-1],
         children=[make_concept(path + [c], number_path=f"{number_path}.{i}") for i, c in children],
+        mvds=[{"abbr": "".join(re.findall('[A-Z]|(?<=-)[a-z]', k)), "name":k, "on": path[-1].replace(" ", "") in v} for k, v in R.xmi_mvd_concepts.items()],
     )
 
 
@@ -1626,7 +1655,7 @@ def concept_list():
     fn = os.path.join(REPO_DIR, "docs", "templates", "README.md")
     html = process_markdown("", open(fn).read())
     return render_template(
-        "chapter.html",
+        "concept_listing.html",
         base=base,
         is_iso=X.is_iso,
         navigation=get_navigation(),
@@ -1782,6 +1811,7 @@ def content(s="cover"):
             abort(404)
 
     html = process_markdown("", render_template_string(open(fn).read(), base=base, is_iso=X.is_iso))
+    
     return render_template(
         "static.html",
         base=base,
@@ -1791,6 +1821,7 @@ def content(s="cover"):
         path=fn[len(REPO_DIR) :].replace("\\", "/"),
         title=title,
         number=number,
+        body_class=re.sub('[^a-z0-9]+', '-', s.lower())
     )
 
 
@@ -1801,7 +1832,12 @@ def annex_a():
 
 @app.route(make_url("annex-a-express.html"))
 def annex_a_express():
-    return render_template("annex-a-express.html", base=base, is_iso=X.is_iso, navigation=get_navigation(), express=open("IFC.exp").read())
+    return render_template("annex-a-express.html", base=base, is_iso=X.is_iso, navigation=get_navigation(), express=open("IFC.exp").read(), link=f"{SCHEMA_NAME}.exp")
+
+from xmi_document import SCHEMA_NAME
+@app.route(make_url(f"{SCHEMA_NAME}.exp"))
+def annex_a_express_download():
+    return send_file("IFC.exp", as_attachment=True, attachment_filename=f"{SCHEMA_NAME}.exp")
 
 
 @app.route(make_url("annex-a-psd.zip"))
@@ -2032,7 +2068,7 @@ def search():
     if request.args.get("query"):
         solr = pysolr.Solr("http://localhost:8983/solr/ifc")
         query = request.args.get("query")
-        results = solr.search("body:(%s)" % query, **{"hl": "on", "hl.fl": "body"})
+        results = solr.search("body:(%s)" % query, **{"hl": "on", "hl.fl": "body", 'rows': 30})
         h = results.highlighting
 
         def format(s):
@@ -2046,7 +2082,7 @@ def search():
 
         matches = [
             {"url": get_url(r), "match": format(h[r["id"]]["body"][0]), "title": r["title"][0]}
-            for r in list(results)[0:10]
+            for r in list(results)[0:30]
         ]
 
     return render_template("search.html", base=base, is_iso=X.is_iso, navigation=get_navigation(), matches=matches, query=query)
@@ -2058,9 +2094,9 @@ def sandcastle():
     html = ""
 
     # Set to false for now because I don't yet know how to sanitise (e.g. any pydot vulnerabilities?)
-    if request.method == "POST" and request.form["md"] and False:
+    if request.method == "POST" and request.form["md"]:
         md = request.form["md"]
-        html = process_markdown("", md)
+        html = process_markdown("", process_graphviz_concept("", md))
 
     return render_template("sandcastle.html", base=base, is_iso=X.is_iso, navigation=get_navigation(), html=html, md=md)
 
@@ -2204,6 +2240,15 @@ def after(response):
             element.append(anchor)
 
         html = FigureNumberer.replace_references(str(soup))
+        
+        def case_norm(v):
+            # @todo cache this
+            x = v.upper()
+            n = {k.upper():k for k in R.entity_definitions.keys()}.get(x)
+            if n: return n
+            n = {k.upper():k for k in R.pset_definitions.keys()}.get(x)
+            if n: return n
+            return v
 
         def decorate_link(m):
             w = m.group(0)
@@ -2213,7 +2258,7 @@ def after(response):
                         redis.lpush("references", json.dumps([w, "", request.path]))
                     except ConnectionError:
                         pass
-                return "<a href='" + url_for("resource", resource=w) + "'>" + w + "</a>"
+                return "<a href='" + url_for("resource", resource=case_norm(w)) + "'>" + w + "</a>"
             else:
                 return w
 
@@ -2246,7 +2291,7 @@ def after(response):
 @app.route(make_url("index.htm"))
 def get_index():
     items = [
-        {"number": "", "title": f"Listing of {x}", "url": make_url(f"listing-{x}.html")}
+        {"number": "", "title": f"Listing of {x}", "url": f"listing-{x}.html"}
         for x in "references,figures,tables".split(",")
     ]
     return render_template("index.html", base=base, is_iso=is_iso, navigation=get_navigation(), items=items, title="Index")

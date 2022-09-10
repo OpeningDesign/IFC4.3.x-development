@@ -42,7 +42,7 @@ nav div:last-child {
     border-bottom: 0px;
 }
 nav div a.current {
-    background-color: var(--blue);
+    background-color: var(--blue) !important;
     color: #fff;
     border-left: 0px;
 }
@@ -352,7 +352,7 @@ ul.psets>li>ul>li {
     list-style-type: none;
 }
 ol.referenced-list {
-    padding-left: calc(2 * var(--universal-margin));
+    padding-left: 24px;
     list-style: none;
 }
 ol.referenced-list.small {
@@ -449,15 +449,6 @@ ul.classes li.current a {
 td p:nth-child(1) {
     /* So that paragraphs in tds and simple tds line up */
     margin-top: 0px;
-}
-div.changelog {
-    opacity: 0.2;
-    -webkit-transition: opacity 0.3s ease-in-out;
-    -moz-transition: opacity 0.3s ease-in-out;
-    transition: opacity 0.3s ease-in-out;
-}
-div.changelog:hover {
-    opacity: 1;
 }
 ul.changelog {
     list-style: none;
@@ -597,4 +588,68 @@ table.hljs-ln td:first-child {
 }
 .show-inherited, .hide-inherited {
     cursor: pointer;
+}
+.cl-legend {
+    text-align: right;
+}
+.cl-legend *, .icon-link * {
+    vertical-align: middle;
+    margin: 0 0.5rem;
+}
+td.hljs-ln-code {
+    white-space: pre-wrap;
+}
+blockquote blockquote {
+    border: none;
+}
+blockquote blockquote:before {
+    content: none;
+}
+body.terms-and-definitions h2 {
+    font-size: 1rem;
+    padding-bottom: 0;
+    margin-bottom: 0;
+    font-weight: bold;
+}
+body.terms-and-definitions p {
+    margin-top: 0;
+}
+body.terms-and-definitions aside {
+    border: none;
+    padding: 0;
+}
+.referenced-list .row {
+    display: inline-block;
+}
+.referenced-list .row:first-child {
+    width: 500px
+}
+.referenced-list .referenced-list {
+    margin-left: 0;
+}
+.referenced-list .referenced-list .row:first-child {
+    width: 476px
+}
+.referenced-list .referenced-list .referenced-list .row:first-child {
+    width: 452px
+}
+.referenced-list .referenced-list .referenced-list .referenced-list .row:first-child {
+    width: 428px
+}
+.referenced-list .referenced-list .referenced-list .referenced-list .referenced-list .row:first-child {
+    width: 404px
+}
+.referenced-list .row.mini {
+    width: 80px;
+}
+.referenced-list .row.mini.on:before {
+    content: '\2713';
+}
+aside.aside-deprecation mark a {
+    color: white;
+    margin-left: 0.5em;
+    opacity: 0.5;
+}
+aside.aside-deprecation mark a:hover {
+    opacity: 1.0;
 }

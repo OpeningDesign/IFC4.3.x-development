@@ -4,14 +4,14 @@
     <link rel="stylesheet" href="{{ base }}/assets/css/style.css">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta charset="utf-8">
-    <title>IFC4.3.0.0 Documentation</title>
+    <title>IFC4.3.0.1 Documentation</title>
     <link rel="icon" type="image/x-icon" href="{{ base }}/assets/img/favicon.ico">
 </head>
-<body>
+<body class="{{body_class or ''}}">
     <div class="container">
         <div class="row">
             <header>
-                <p>IFC 4.3.0.0 (IFC4X3) <small>development</small></p>
+                <p>IFC 4.3.0.1 (IFC4X3_TC1) <small>development</small></p>
                 {% if not is_iso %}
                 <ul>
                     <li>
@@ -80,7 +80,7 @@
                 {% if path %}
                 <div class="card fluid shadowed">
                     <p>
-                        <a class="button primary edit-github" href='https://github.com/{{ repo or 'buildingSMART/IFC4.3.x-development' }}/blob/master/{{ path }}'><span class="icon-edit inverse"></span> Edit on Github</a>
+                        <a class="button primary edit-github" href='https://github.com/{{ repo or 'buildingSMART/IFC4.3.x-development' }}/blob/jwg12_doc_changes/{{ path }}'><span class="icon-edit inverse"></span> Edit on Github</a>
                     </p>
                     <p>
                         <small>
@@ -108,7 +108,7 @@
                         {{ changelog.number }} Changelog
                     </h3>
                     {% for section in changelog.sections %}
-                    <h4 class="collapsed">
+                    <h4>
                         {{ section.number }} {{ section.name }}
                     </h4>
                     <ul class="changelog">
