@@ -18,7 +18,7 @@ while True:
     # do not require credentials for auto merge on pull
     # subprocess.check_output(["git", "-C", REPO_DIR, "pull"])
     subprocess.check_output(["git", "-C", REPO_DIR, "fetch"])
-    subprocess.check_output(["git", "-C", REPO_DIR, "reset", "--hard", "origin/jwg12_doc_changes"])
+    subprocess.check_output(["git", "-C", REPO_DIR, "reset", "--hard", "origin/master"])
     c = subprocess.check_output(["git", "-C", REPO_DIR, "rev-parse", "HEAD"])
     
     first_time = not os.listdir(XML_PATH)
@@ -34,6 +34,7 @@ while True:
         subprocess.call("zip ../psd.zip *", cwd="psd", shell=True)
         subprocess.call([sys.executable, "parse_xmi.py", os.path.join(REPO_DIR, "schemas/IFC.xml")])
         subprocess.call([sys.executable, "to_express.py", os.path.join(REPO_DIR, "schemas/IFC.xml"), "IFC.exp"])
+        subprocess.call([sys.executable, "express_to_xsd.py", "IFC.exp", "IFC.xsd"])
         subprocess.call([sys.executable, "change_log.py", REPO_DIR])
         subprocess.call([sys.executable, "parse_examples.py", REPO_DIR])
         
